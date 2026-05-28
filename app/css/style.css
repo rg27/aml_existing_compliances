@@ -1,0 +1,57 @@
+body {
+    background-color: #f8f9fa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 20px;
+    margin: 0;
+}
+.table-card {
+    width: 90%;
+    max-width: 800px;
+}
+.header {
+    background: #f4f7f9;
+    padding: 12px 15px;
+    font-weight: 600;
+    color: #444;
+    border-bottom: 1px solid #ddecfa;
+    font-size: 14px;
+}
+.label {
+    display: block;
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+}
+.value {
+    font-size: 14px;
+    color: #222;
+    background: #fdfdfd;
+    padding: 6px 10px;
+    border: 1px solid #f0f0f0;
+    border-radius: 2px;
+    min-height: 20px;
+    word-break: break-word;
+}
+.credential-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.credential-table th {
+    text-align: left;
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    padding: 10px;
+    border-bottom: 2px solid #f4f7f9;
+}
+.credential-table td {
+    padding: 10px;
+    font-size: 13px;
+    color: #333;
+    border-bottom: 1px solid #f4f7f9;
+}

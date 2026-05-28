@@ -1,0 +1,233 @@
+let currentAMLID = "";
+let allCredentialsData = []; 
+
+window.copyToClipboard = async (text, type) => {
+    try {
+        await navigator.clipboard.writeText(text);
+        console.log(`${type} copied to clipboard`);
+    } catch (err) {
+        console.error('Failed to copy: ', err);
+    }
+};
+
+ZOHO.embeddedApp.on("PageLoad", async (entity) => {
+    currentAMLID = Array.isArray(entity.EntityId) ? entity.EntityId[0] : entity.EntityId;
+    
+    try {
+        const fullWidth = `${window.innerWidth + 144}px`;
+        const fullHeight = `${window.innerHeight}px`;
+        
+        await ZOHO.CRM.UI.Resize({ height: fullHeight, width: fullWidth });
+        console.log(`Widget expanded to full page view: ${fullWidth} x ${fullHeight}`);
+
+        const userRes = await ZOHO.CRM.CONFIG.getCurrentUser();
+        const userProfile = userRes?.users?.[0]?.profile?.name;
+        const mainWrapper = document.getElementById("main-wrapper");
+
+        if (userProfile === "Administrator" || userProfile === "TA-Accountants" || userProfile === "TA-General Manager") {
+            await loadCredentials(true);
+        } else {
+            mainWrapper.innerHTML = `
+                <div class="flex items-center justify-center min-h-[250px] w-full p-2">
+                    <div class="flex flex-col items-center justify-center space-y-2 max-w-xs w-full p-6 bg-white rounded-xl shadow-sm border border-slate-100">
+                        <div class="text-center">
+                            <h3 class="text-slate-600 font-semibold text-xs leading-tight">Unavailable</h3>
+                        </div>
+                    </div>
+                </div>
+                `;
+        }
+    } catch (error) {
+        console.error("Initialization Error:", error);
+    }
+});
+
+async function loadCredentials(isInitialLoad = false) {
+    const tableBody = document.getElementById("credential-body");
+    let logInterval = null;
+
+    if (isInitialLoad) {
+        tableBody.innerHTML = `
+            <tr>
+                <td colspan="7" class="px-6 py-12 text-center text-slate-400 italic text-xs">
+                    <div id="loading-log-container" class="inline-block text-left font-mono text-[10px] space-y-1 bg-slate-900 text-slate-300 p-4 rounded-lg shadow-inner max-w-sm w-full border border-slate-800">
+                        <div class="text-slate-400">[01/04] Getting the compliance records...</div>
+                    </div>
+                </td>
+            </tr>`;
+
+        const logContainer = document.getElementById("loading-log-container");
+        const logSteps = [
+            '<div class="text-slate-400">[02/04] Checking & verifying AML stage...</div>',
+            '<div class="text-slate-400">[03/04] Extracting last screened timestamps...</div>',
+            '<div class="text-amber-400 animate-pulse">[04/04] Finalizing dataset parsing, please wait...</div>'
+        ];
+        let currentStep = 0;
+
+        logInterval = setInterval(() => {
+            if (currentStep < logSteps.length && logContainer) {
+                logContainer.innerHTML += logSteps[currentStep];
+                currentStep++;
+            }
+        }, 1200);
+    }
+    
+    try {
+        const payload = { "aml_id": currentAMLID };
+        const args = { "arguments": JSON.stringify(payload) };
+        
+        console.log("=== [BEFORE EXECUTE] Zoho Function Arguments ===", args);
+
+        const response = await ZOHO.CRM.FUNCTIONS.execute("get_all_previously_screened_records", args);
+        
+        console.log("=== [AFTER EXECUTE] Zoho Function Raw Response ===", response);
+
+        if (logInterval) clearInterval(logInterval);
+
+        let rawOutput = response?.details?.output;
+        let recordsArray = [];
+
+        if (rawOutput) {
+            if (typeof rawOutput === 'object') {
+                if (Array.isArray(rawOutput)) {
+                    recordsArray = rawOutput;
+                } else if (rawOutput.data && Array.isArray(rawOutput.data)) {
+                    recordsArray = rawOutput.data;
+                }
+            } else if (typeof rawOutput === 'string' && rawOutput.trim() !== "" && rawOutput.trim() !== "[]") {
+                let cleaned = rawOutput.trim();
+                if (!cleaned.startsWith("[")) {
+                    cleaned = "[" + cleaned + "]";
+                }
+                let parsedData = JSON.parse(cleaned);
+                if (Array.isArray(parsedData)) {
+                    recordsArray = parsedData;
+                } else if (parsedData && parsedData.data && Array.isArray(parsedData.data)) {
+                    parsedData = parsedData.data;
+                }
+            }
+        }
+
+        if (recordsArray && recordsArray.length > 0) {
+            recordsArray.sort((a, b) => {
+                let rawA = a.aml_stage_modified_time ? a.aml_stage_modified_time.split('T')[0].replace(/[^0-9]/g, '') : '';
+                let rawB = b.aml_stage_modified_time ? b.aml_stage_modified_time.split('T')[0].replace(/[^0-9]/g, '') : '';
+                
+                const numA = rawA ? parseInt(rawA, 10) : 0;
+                const numB = rawB ? parseInt(rawB, 10) : 0;
+                
+                return numB - numA;
+            });
+
+            allCredentialsData = recordsArray; 
+            tableBody.innerHTML = "";
+            
+            recordsArray.forEach((item, index) => {
+                const row = document.createElement("tr");
+                row.className = "hover:bg-slate-50 transition-colors group text-[11px]";
+                
+                const crVal = item.cr_score;
+                const brVal = item.br_score;
+                const grVal = item.gr_score;
+                const recordID = item.aml_id || item.id || "";
+                const dateRaw = item.aml_stage_modified_time || "";
+                const eddUrl = item.edd_pdf_url || ""; 
+
+                const targetURL = recordID ? `https://crm.zoho.com/crm/org682300086/tab/CustomModule49/${recordID}` : "#";
+                
+                let dateDisplay = '-';
+                if (dateRaw && dateRaw.trim() !== "") {
+                    const dateObj = new Date(dateRaw);
+                    if (!isNaN(dateObj.getTime())) {
+                        dateDisplay = dateObj.toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
+                        });
+                    }
+                }
+
+                const isCrEmpty = crVal === "" || crVal === null || crVal === undefined;
+                const isBrEmpty = brVal === "" || brVal === null || brVal === undefined;
+                const isGrEmpty = grVal === "" || grVal === null || grVal === undefined;
+
+                let scoreColumnsHTML = "";
+
+                if (isCrEmpty && isBrEmpty && isGrEmpty) {
+                    scoreColumnsHTML = `
+                        <td colspan="3" class="px-6 py-2.5 text-center whitespace-nowrap">
+                            <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 text-[9px] font-medium tracking-tight uppercase border border-slate-200/60 select-none">
+                                Old Version
+                            </span>
+                        </td>`;
+                } else {
+                    let scoreBadge = "bg-slate-100 text-slate-600 border-slate-200";
+                    if (!isCrEmpty) {
+                        const numericCr = parseFloat(crVal);
+                        if (numericCr >= 25) scoreBadge = "bg-red-50 text-red-700 border-red-100";
+                        else if (numericCr >= 11) scoreBadge = "bg-amber-50 text-amber-700 border-amber-100";
+                        else scoreBadge = "bg-emerald-50 text-emerald-700 border-emerald-100";
+                    }
+                    const crDisplay = !isCrEmpty ? crVal : '-';
+                    const brDisplay = !isBrEmpty ? brVal : '0';
+                    const grDisplay = !isGrEmpty ? grVal : '0';
+
+                    scoreColumnsHTML = `
+                        <td class="px-6 py-2.5 text-center whitespace-nowrap">
+                            <span class="px-1 py-0.5 rounded text-[9px] font-bold border ${scoreBadge}">${crDisplay}</span>
+                        </td>
+                        <td class="px-6 py-2.5 text-center font-medium text-slate-600 whitespace-nowrap">${brDisplay}</td>
+                        <td class="px-6 py-2.5 text-center font-medium text-slate-600 whitespace-nowrap">${grDisplay}</td>`;
+                }
+
+                row.innerHTML = `
+                    <td class="px-6 py-2.5 text-slate-700 font-medium whitespace-nowrap">
+                        <div class="flex items-center space-x-1">
+                            <span>${item.compliance_name || '-'}</span>
+                            <button onclick="copyToClipboard('${item.compliance_name || ''}', 'Compliance Name')" class="text-slate-300 hover:text-slate-600 transition-colors">
+                                <i data-lucide="copy" class="w-2.5 h-2.5"></i>
+                            </button>
+                        </div>
+                    </td>
+                    ${scoreColumnsHTML}
+                    <td class="px-6 py-2.5 text-center text-slate-500 whitespace-nowrap">${dateDisplay}</td>
+                    <td class="px-6 py-2.5 text-center whitespace-nowrap">
+                        ${eddUrl && eddUrl.trim() !== "" && eddUrl !== "-" ? `
+                            <a href="${eddUrl}" target="_blank" class="inline-flex items-center space-x-1 text-red-600 hover:text-red-800 font-medium transition-colors">
+                                <i data-lucide="file-text" class="w-3 h-3"></i>
+                                <span>PDF</span>
+                            </a>
+                        ` : `
+                            <span class="text-slate-400 text-[10px] font-medium tracking-wider select-none">N/A</span>
+                        `}
+                    </td>
+                    <td class="px-6 py-2.5 text-center w-24 whitespace-nowrap">
+                        ${recordID ? `
+                            <a href="${targetURL}" target="_blank" class="inline-flex items-center px-2 py-0.5 bg-slate-800 hover:bg-slate-900 text-white text-[10px] font-medium rounded shadow-sm transition-all">
+                                View
+                            </a>
+                        ` : `
+                            <span class="text-slate-400 text-[10px] italic select-none">-</span>
+                        `}
+                    </td>`;
+                tableBody.appendChild(row);
+            });
+            lucide.createIcons();
+            
+            setTimeout(async () => {
+                await ZOHO.CRM.UI.Resize({ height: `${window.innerHeight}px`, width: `${window.innerWidth + 144}px` });
+            }, 100);
+
+        } else {
+            allCredentialsData = [];
+            tableBody.innerHTML = `<tr><td colspan="7" class="px-2 py-8 text-center text-slate-400 font-medium italic text-[11px]">No Records</td></tr>`;
+        }
+    } catch (e) { 
+        if (logInterval) clearInterval(logInterval);
+        console.error("Execution or Parse Error:", e);
+        allCredentialsData = [];
+        tableBody.innerHTML = `<tr><td colspan="7" class="px-2 py-8 text-center text-slate-400 font-medium italic text-[11px]">No Records</td></tr>`;
+    }
+}
+
+ZOHO.embeddedApp.init();
