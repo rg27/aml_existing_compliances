@@ -77,8 +77,7 @@ async function loadCredentials(isInitialLoad = false) {
         const args = { "arguments": JSON.stringify(payload) };
         
         console.log("=== [BEFORE EXECUTE] Zoho Function Arguments ===", args);
-
-        const response = await ZOHO.CRM.FUNCTIONS.execute("get_all_previously_screened_records", args);
+        const response = await ZOHO.CRM.FUNCTIONS.execute("get_all_previously_screened_records_v2", args);
         
         console.log("=== [AFTER EXECUTE] Zoho Function Raw Response ===", response);
 
@@ -103,10 +102,11 @@ async function loadCredentials(isInitialLoad = false) {
                 if (Array.isArray(parsedData)) {
                     recordsArray = parsedData;
                 } else if (parsedData && parsedData.data && Array.isArray(parsedData.data)) {
-                    parsedData = parsedData.data;
+                    recordsArray = parsedData.data;
                 }
             }
         }
+        console.log("=== [PARSED] recordsArray length ===", recordsArray.length, recordsArray);
 
         if (recordsArray && recordsArray.length > 0) {
             recordsArray.sort((a, b) => {
@@ -129,9 +129,39 @@ async function loadCredentials(isInitialLoad = false) {
                 const crVal = item.cr_score;
                 const brVal = item.br_score;
                 const grVal = item.gr_score;
-                const recordID = item.aml_id || item.id || "";
+                const srVal = item.sr_rating;
+                const recordID = item.searched_aml_id || item.aml_id || item.id || "";
                 const dateRaw = item.aml_stage_modified_time || "";
-                const eddUrl = item.edd_pdf_url || ""; 
+
+                // ── EDD: find the latest attachment whose File_Name contains
+                //         "TLZ Source of Wealth Declaration", then build the URL
+                //         using its $link_url + item.searched_aml_id as entity_id ──
+                let eddUrl = "";
+                try {
+                    const attachments = (item.attachments && item.attachments.data)
+                        ? item.attachments.data
+                        : [];
+
+                    const tlzMatches = attachments.filter(function(a) {
+                        return a.File_Name && a.File_Name.indexOf("TLZ Source of Wealth Declaration") !== -1;
+                    });
+
+                    if (tlzMatches.length > 0) {
+                        const latest = tlzMatches.reduce(function(best, cur) {
+                            return new Date(cur.Created_Time) > new Date(best.Created_Time) ? cur : best;
+                        });
+
+                        const linkUrl   = latest["$link_url"] || "";
+                        const entityId  = item.searched_aml_id || "";
+                        const authId    = encodeURIComponent(
+                            JSON.stringify({ module: "3769920000187099442", entity_id: entityId })
+                        );
+
+                        eddUrl = linkUrl + "?authId=" + authId;
+                    }
+                } catch (eddErr) {
+                    console.error("EDD parse error for record index " + index + ":", eddErr, item);
+                }
 
                 const targetURL = recordID ? `https://crm.zoho.com/crm/org682300086/tab/CustomModule49/${recordID}` : "#";
                 
@@ -150,12 +180,13 @@ async function loadCredentials(isInitialLoad = false) {
                 const isCrEmpty = crVal === "" || crVal === null || crVal === undefined;
                 const isBrEmpty = brVal === "" || brVal === null || brVal === undefined;
                 const isGrEmpty = grVal === "" || grVal === null || grVal === undefined;
+                const isSrEmpty = srVal === "" || srVal === null || srVal === undefined;
 
                 let scoreColumnsHTML = "";
 
                 if (isCrEmpty && isBrEmpty && isGrEmpty) {
                     scoreColumnsHTML = `
-                        <td colspan="3" class="px-6 py-2.5 text-center whitespace-nowrap">
+                        <td colspan="4" class="px-6 py-2.5 text-center whitespace-nowrap">
                             <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 text-[9px] font-medium tracking-tight uppercase border border-slate-200/60 select-none">
                                 Old Version
                             </span>
@@ -171,19 +202,23 @@ async function loadCredentials(isInitialLoad = false) {
                     const crDisplay = !isCrEmpty ? crVal : '-';
                     const brDisplay = !isBrEmpty ? brVal : '0';
                     const grDisplay = !isGrEmpty ? grVal : '0';
+                    const srDisplay = !isSrEmpty ? srVal : '-';
 
                     scoreColumnsHTML = `
                         <td class="px-6 py-2.5 text-center whitespace-nowrap">
                             <span class="px-1 py-0.5 rounded text-[9px] font-bold border ${scoreBadge}">${crDisplay}</span>
                         </td>
                         <td class="px-6 py-2.5 text-center font-medium text-slate-600 whitespace-nowrap">${brDisplay}</td>
-                        <td class="px-6 py-2.5 text-center font-medium text-slate-600 whitespace-nowrap">${grDisplay}</td>`;
+                        <td class="px-6 py-2.5 text-center font-medium text-slate-600 whitespace-nowrap">${grDisplay}</td>
+                        <td class="px-6 py-2.5 text-center font-medium text-slate-600 whitespace-nowrap">${srDisplay}</td>`;
                 }
 
                 row.innerHTML = `
                     <td class="px-6 py-2.5 text-slate-700 font-medium whitespace-nowrap">
                         <div class="flex items-center space-x-1">
-                            <span>${item.compliance_name || '-'}</span>
+                            ${targetURL !== "#" ? `
+                                <a href="${targetURL}" target="_blank" class="text-blue-600 hover:text-blue-800 underline underline-offset-2 font-semibold transition-colors">${item.compliance_name || '-'}</a>
+                            ` : `<span>${item.compliance_name || '-'}</span>`}
                             <button onclick="copyToClipboard('${item.compliance_name || ''}', 'Compliance Name')" class="text-slate-300 hover:text-slate-600 transition-colors">
                                 <i data-lucide="copy" class="w-2.5 h-2.5"></i>
                             </button>
@@ -199,15 +234,6 @@ async function loadCredentials(isInitialLoad = false) {
                             </a>
                         ` : `
                             <span class="text-slate-400 text-[10px] font-medium tracking-wider select-none">N/A</span>
-                        `}
-                    </td>
-                    <td class="px-6 py-2.5 text-center w-24 whitespace-nowrap">
-                        ${recordID ? `
-                            <a href="${targetURL}" target="_blank" class="inline-flex items-center px-2 py-0.5 bg-slate-800 hover:bg-slate-900 text-white text-[10px] font-medium rounded shadow-sm transition-all">
-                                View
-                            </a>
-                        ` : `
-                            <span class="text-slate-400 text-[10px] italic select-none">-</span>
                         `}
                     </td>`;
                 tableBody.appendChild(row);
