@@ -49,7 +49,7 @@ async function loadCredentials(isInitialLoad = false) {
     if (isInitialLoad) {
         tableBody.innerHTML = `
             <tr>
-                <td colspan="7" class="px-6 py-12 text-center text-slate-400 italic text-xs">
+                <td colspan="9" class="px-6 py-12 text-center text-slate-400 italic text-xs">
                     <div id="loading-log-container" class="inline-block text-left font-mono text-[10px] space-y-1 bg-slate-900 text-slate-300 p-4 rounded-lg shadow-inner max-w-sm w-full border border-slate-800">
                         <div class="text-slate-400">[01/04] Getting the compliance records...</div>
                     </div>
@@ -77,7 +77,7 @@ async function loadCredentials(isInitialLoad = false) {
         const args = { "arguments": JSON.stringify(payload) };
         
         console.log("=== [BEFORE EXECUTE] Zoho Function Arguments ===", args);
-        const response = await ZOHO.CRM.FUNCTIONS.execute("get_all_previously_screened_records_v2", args);
+        const response = await ZOHO.CRM.FUNCTIONS.execute("get_all_previously_screened_records_v3", args);
         
         console.log("=== [AFTER EXECUTE] Zoho Function Raw Response ===", response);
 
@@ -130,12 +130,11 @@ async function loadCredentials(isInitialLoad = false) {
                 const brVal = item.br_score;
                 const grVal = item.gr_score;
                 const srVal = item.sr_rating;
+                const officerFrrVal = item.aml_officer_frr;
+                const appTypeVal = item.app_type;
                 const recordID = item.searched_aml_id || item.aml_id || item.id || "";
                 const dateRaw = item.aml_stage_modified_time || "";
 
-                // ── EDD: find the latest attachment whose File_Name contains
-                //         "TLZ Source of Wealth Declaration", then build the URL
-                //         using its $link_url + item.searched_aml_id as entity_id ──
                 let eddUrl = "";
                 try {
                     const attachments = (item.attachments && item.attachments.data)
@@ -181,12 +180,14 @@ async function loadCredentials(isInitialLoad = false) {
                 const isBrEmpty = brVal === "" || brVal === null || brVal === undefined;
                 const isGrEmpty = grVal === "" || grVal === null || grVal === undefined;
                 const isSrEmpty = srVal === "" || srVal === null || srVal === undefined;
+                const isOfficerFrrEmpty = officerFrrVal === "" || officerFrrVal === null || officerFrrVal === undefined;
+                const isAppTypeEmpty = appTypeVal === "" || appTypeVal === null || appTypeVal === undefined;
 
                 let scoreColumnsHTML = "";
 
                 if (isCrEmpty && isBrEmpty && isGrEmpty) {
                     scoreColumnsHTML = `
-                        <td colspan="4" class="px-6 py-2.5 text-center whitespace-nowrap">
+                        <td colspan="6" class="px-3 py-2.5 text-center">
                             <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 text-[9px] font-medium tracking-tight uppercase border border-slate-200/60 select-none">
                                 Old Version
                             </span>
@@ -203,18 +204,22 @@ async function loadCredentials(isInitialLoad = false) {
                     const brDisplay = !isBrEmpty ? brVal : '0';
                     const grDisplay = !isGrEmpty ? grVal : '0';
                     const srDisplay = !isSrEmpty ? srVal : '-';
+                    const officerFrrDisplay = !isOfficerFrrEmpty ? officerFrrVal : '-';
+                    const appTypeDisplay = !isAppTypeEmpty ? appTypeVal : '-';
 
                     scoreColumnsHTML = `
-                        <td class="px-6 py-2.5 text-center whitespace-nowrap">
+                        <td class="px-3 py-2.5 text-center">
                             <span class="px-1 py-0.5 rounded text-[9px] font-bold border ${scoreBadge}">${crDisplay}</span>
                         </td>
-                        <td class="px-6 py-2.5 text-center font-medium text-slate-600 whitespace-nowrap">${brDisplay}</td>
-                        <td class="px-6 py-2.5 text-center font-medium text-slate-600 whitespace-nowrap">${grDisplay}</td>
-                        <td class="px-6 py-2.5 text-center font-medium text-slate-600 whitespace-nowrap">${srDisplay}</td>`;
+                        <td class="px-3 py-2.5 text-center font-medium text-slate-600">${brDisplay}</td>
+                        <td class="px-3 py-2.5 text-center font-medium text-slate-600">${grDisplay}</td>
+                        <td class="px-3 py-2.5 text-center font-medium text-slate-600">${srDisplay}</td>
+                        <td class="px-3 py-2.5 text-center font-medium text-slate-600">${officerFrrDisplay}</td>
+                        <td class="px-3 py-2.5 text-center font-medium text-slate-600">${appTypeDisplay}</td>`;
                 }
 
                 row.innerHTML = `
-                    <td class="px-6 py-2.5 text-slate-700 font-medium whitespace-nowrap">
+                    <td class="px-3 py-2.5 text-slate-700 font-medium">
                         <div class="flex items-center space-x-1">
                             ${targetURL !== "#" ? `
                                 <a href="${targetURL}" target="_blank" class="text-blue-600 hover:text-blue-800 underline underline-offset-2 font-semibold transition-colors">${item.compliance_name || '-'}</a>
@@ -225,8 +230,8 @@ async function loadCredentials(isInitialLoad = false) {
                         </div>
                     </td>
                     ${scoreColumnsHTML}
-                    <td class="px-6 py-2.5 text-center text-slate-500 whitespace-nowrap">${dateDisplay}</td>
-                    <td class="px-6 py-2.5 text-center whitespace-nowrap">
+                    <td class="px-3 py-2.5 text-center text-slate-500">${dateDisplay}</td>
+                    <td class="px-3 py-2.5 text-center">
                         ${eddUrl && eddUrl.trim() !== "" && eddUrl !== "-" ? `
                             <a href="${eddUrl}" target="_blank" class="inline-flex items-center space-x-1 text-red-600 hover:text-red-800 font-medium transition-colors">
                                 <i data-lucide="file-text" class="w-3 h-3"></i>
@@ -246,13 +251,13 @@ async function loadCredentials(isInitialLoad = false) {
 
         } else {
             allCredentialsData = [];
-            tableBody.innerHTML = `<tr><td colspan="7" class="px-2 py-8 text-center text-slate-400 font-medium italic text-[11px]">No Records</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="9" class="px-2 py-8 text-center text-slate-400 font-medium italic text-[11px]">No Records</td></tr>`;
         }
     } catch (e) { 
         if (logInterval) clearInterval(logInterval);
         console.error("Execution or Parse Error:", e);
         allCredentialsData = [];
-        tableBody.innerHTML = `<tr><td colspan="7" class="px-2 py-8 text-center text-slate-400 font-medium italic text-[11px]">No Records</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="9" class="px-2 py-8 text-center text-slate-400 font-medium italic text-[11px]">No Records</td></tr>`;
     }
 }
 
