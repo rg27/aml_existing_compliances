@@ -77,8 +77,8 @@ async function loadCredentials(isInitialLoad = false) {
         const args = { "arguments": JSON.stringify(payload) };
         
         console.log("=== [BEFORE EXECUTE] Zoho Function Arguments ===", args);
+        //Function Name: AML: Client Existing Compliances v3
         const response = await ZOHO.CRM.FUNCTIONS.execute("get_all_previously_screened_records_v3", args);
-        
         console.log("=== [AFTER EXECUTE] Zoho Function Raw Response ===", response);
 
         if (logInterval) clearInterval(logInterval);
